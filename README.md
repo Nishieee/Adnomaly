@@ -16,37 +16,9 @@ Adnomaly is a **real-time clickstream analytics platform** that detects ad fraud
 
 ## 🏗️ Complete System Architecture
 
-```mermaid
-graph TB
-    subgraph "📊 Data Generation"
-        A[Data Generator<br/>120 events/sec<br/>36 countries<br/>3 platforms] --> B[Kafka Topic<br/>clickstream<br/>localhost:29092]
-    end
+![Adnomaly Data Generation Pipeline](architecture_pictures/adnomly_datagenerationpipeline.png)
 
-    subgraph "⚡ Real-time Streaming"
-        B --> C[Kafka Broker<br/>Buffering & Distribution]
-        C --> D[DB Consumer<br/>PostgreSQL Storage]
-        C --> E[MinIO Consumer<br/>Data Lake Storage]
-        C --> F[Flink Job<br/>Stream Processing]
-    end
-
-    subgraph "💾 Data Storage"
-        D --> G[(PostgreSQL<br/>localhost:5433<br/>Structured Data<br/>21,379+ events)]
-        E --> H[(MinIO<br/>localhost:9000<br/>Object Storage<br/>Time-partitioned files)]
-        F --> I[(Feature Aggregates<br/>5-min sliding windows)]
-    end
-
-    subgraph "🎯 Feature Store (Phase 3)"
-        I --> J[Feast Ingestor<br/>Kafka → Redis]
-        G --> K[Offline Backfill<br/>PostgreSQL → Parquet]
-        J --> L[Feast Feature Store<br/>Redis + Local Files]
-    end
-
-    subgraph "🌐 Web Interfaces"
-        G --> M[pgAdmin<br/>http://localhost:5050<br/>Database Management]
-        H --> N[MinIO Console<br/>http://localhost:9001<br/>File Browser]
-        F --> O[Flink UI<br/>http://localhost:8081<br/>Job Monitoring]
-    end
-```
+**Data Generation Pipeline**: Real-time clickstream events flow from the data generator through Kafka to multiple consumers, creating a robust data pipeline with PostgreSQL for structured storage, MinIO for data lake storage, and Feast for feature store management. The system includes comprehensive web interfaces for monitoring and management, with all infrastructure components actively running and processing 99,718+ events with 60,480+ features across 9 days of historical data.
 
 ## 🚀 Quick Start (3 Steps)
 
