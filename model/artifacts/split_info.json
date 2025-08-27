@@ -1,0 +1,5 @@
+{
+  "train_size": 78840,
+  "val_size": 19711,
+  "total_size": 98551
+}
