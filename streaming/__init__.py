@@ -1,1 +1,1 @@
-# Streaming package for Adnomaly project
+# Adnomaly Streaming Package

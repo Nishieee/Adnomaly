@@ -126,3 +126,15 @@ curl-score:
 	curl -s -X POST http://localhost:8080/v1/score \
 	 -H 'content-type: application/json' \
 	 -d '{"ctr_avg":0.03,"bounce_rate_avg":0.62,"event_count":350,"geo":"US","platform":"ios"}' | jq
+
+score-run:
+	python -m venv .venv && . .venv/bin/activate && \
+	pip install -r requirements.txt && \
+	python -m streaming.scorer
+
+alerts-tail:
+	docker exec -it $$(docker ps -qf name=kafka) kafka-console-consumer \
+	  --bootstrap-server kafka:9092 \
+	  --topic alerts \
+	  --from-beginning \
+	  --max-messages 50

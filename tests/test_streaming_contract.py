@@ -1,229 +1,286 @@
 """
-Contract tests for streaming functionality.
-Tests the parsing and formatting logic without requiring Flink runtime.
+Tests for the streaming contract.
 """
 
-import json
 import pytest
-from datetime import datetime, timezone
-from streaming.job import parse_clickstream_event, ClickstreamEvent, format_window_result
+import json
+from unittest.mock import Mock, patch, AsyncMock
+from streaming.schemas import FeatureMsg, ServingResponse, AlertMsg
 
 
-def test_parse_valid_clickstream_event():
-    """Test parsing a valid clickstream event."""
-    valid_event_json = {
-        "timestamp": "2025-08-26T14:03:12Z",
-        "user_id_hash": "9c0b6c1e07f3a4e1",
-        "ad_id": "ad_281",
-        "campaign_id": "camp_12",
+def test_feature_msg_valid():
+    """Test that a valid FeatureMsg passes validation."""
+    valid_feature = {
+        "window_start": "2024-01-15T10:30:00.000Z",
+        "window_end": "2024-01-15T10:35:00.000Z",
         "geo": "US",
-        "platform": "ios",
-        "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)...",
-        "CPC": 0.42,
-        "CTR": 0.019,
-        "conversion": 0,
-        "bounce_rate": 0.61
+        "platform": "web",
+        "ctr_avg": 0.025,
+        "bounce_rate_avg": 0.45,
+        "event_count": 150
     }
     
-    event = parse_clickstream_event(json.dumps(valid_event_json))
+    feature = FeatureMsg(**valid_feature)
+    assert feature.geo == "US"
+    assert feature.platform == "web"
+    assert feature.ctr_avg == 0.025
+    assert feature.bounce_rate_avg == 0.45
+    assert feature.event_count == 150
+
+
+def test_feature_msg_invalid_geo():
+    """Test that invalid geo fails validation."""
+    invalid_feature = {
+        "window_start": "2024-01-15T10:30:00.000Z",
+        "window_end": "2024-01-15T10:35:00.000Z",
+        "geo": "usa",  # Invalid: lowercase
+        "platform": "web",
+        "ctr_avg": 0.025,
+        "bounce_rate_avg": 0.45,
+        "event_count": 150
+    }
     
-    assert event is not None
-    assert isinstance(event, ClickstreamEvent)
-    assert event.geo == "US"
-    assert event.platform == "ios"
-    assert event.ctr == 0.019
-    assert event.bounce_rate == 0.61
-    assert event.timestamp == datetime(2025, 8, 26, 14, 3, 12, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match="geo must be exactly 2 uppercase letters"):
+        FeatureMsg(**invalid_feature)
 
 
-def test_parse_invalid_timestamp():
-    """Test parsing event with invalid timestamp."""
-    invalid_event_json = {
-        "timestamp": "2025-08-26T14:03:12",  # Missing Z
-        "user_id_hash": "9c0b6c1e07f3a4e1",
-        "ad_id": "ad_281",
-        "campaign_id": "camp_12",
+def test_feature_msg_invalid_platform():
+    """Test that invalid platform fails validation."""
+    invalid_feature = {
+        "window_start": "2024-01-15T10:30:00.000Z",
+        "window_end": "2024-01-15T10:35:00.000Z",
         "geo": "US",
-        "platform": "ios",
-        "user_agent": "Mozilla/5.0",
-        "CPC": 0.42,
-        "CTR": 0.019,
-        "conversion": 0,
-        "bounce_rate": 0.61
+        "platform": "desktop",  # Invalid: not in allowed list
+        "ctr_avg": 0.025,
+        "bounce_rate_avg": 0.45,
+        "event_count": 150
     }
     
-    event = parse_clickstream_event(json.dumps(invalid_event_json))
-    assert event is None
+    with pytest.raises(ValueError, match="platform must be one of: web, ios, android"):
+        FeatureMsg(**invalid_feature)
 
 
-def test_parse_invalid_geo():
-    """Test parsing event with invalid geo."""
-    invalid_event_json = {
-        "timestamp": "2025-08-26T14:03:12Z",
-        "user_id_hash": "9c0b6c1e07f3a4e1",
-        "ad_id": "ad_281",
-        "campaign_id": "camp_12",
-        "geo": "usa",  # Lowercase, wrong length
-        "platform": "ios",
-        "user_agent": "Mozilla/5.0",
-        "CPC": 0.42,
-        "CTR": 0.019,
-        "conversion": 0,
-        "bounce_rate": 0.61
-    }
-    
-    event = parse_clickstream_event(json.dumps(invalid_event_json))
-    assert event is None
-
-
-def test_parse_invalid_platform():
-    """Test parsing event with invalid platform."""
-    invalid_event_json = {
-        "timestamp": "2025-08-26T14:03:12Z",
-        "user_id_hash": "9c0b6c1e07f3a4e1",
-        "ad_id": "ad_281",
-        "campaign_id": "camp_12",
+def test_feature_msg_from_kafka():
+    """Test parsing FeatureMsg from Kafka message bytes."""
+    valid_data = {
+        "window_start": "2024-01-15T10:30:00.000Z",
+        "window_end": "2024-01-15T10:35:00.000Z",
         "geo": "US",
-        "platform": "desktop",  # Invalid platform
-        "user_agent": "Mozilla/5.0",
-        "CPC": 0.42,
-        "CTR": 0.019,
-        "conversion": 0,
-        "bounce_rate": 0.61
+        "platform": "web",
+        "ctr_avg": 0.025,
+        "bounce_rate_avg": 0.45,
+        "event_count": 150
     }
     
-    event = parse_clickstream_event(json.dumps(invalid_event_json))
-    assert event is None
-
-
-def test_parse_invalid_ctr():
-    """Test parsing event with invalid CTR."""
-    invalid_event_json = {
-        "timestamp": "2025-08-26T14:03:12Z",
-        "user_id_hash": "9c0b6c1e07f3a4e1",
-        "ad_id": "ad_281",
-        "campaign_id": "camp_12",
-        "geo": "US",
-        "platform": "ios",
-        "user_agent": "Mozilla/5.0",
-        "CPC": 0.42,
-        "CTR": 1.5,  # > 1
-        "conversion": 0,
-        "bounce_rate": 0.61
-    }
+    message_bytes = json.dumps(valid_data).encode('utf-8')
+    feature = FeatureMsg.from_kafka(message_bytes)
     
-    event = parse_clickstream_event(json.dumps(invalid_event_json))
-    assert event is None
+    assert feature.geo == "US"
+    assert feature.platform == "web"
 
 
-def test_parse_invalid_bounce_rate():
-    """Test parsing event with invalid bounce_rate."""
-    invalid_event_json = {
-        "timestamp": "2025-08-26T14:03:12Z",
-        "user_id_hash": "9c0b6c1e07f3a4e1",
-        "ad_id": "ad_281",
-        "campaign_id": "camp_12",
-        "geo": "US",
-        "platform": "ios",
-        "user_agent": "Mozilla/5.0",
-        "CPC": 0.42,
-        "CTR": 0.019,
-        "conversion": 0,
-        "bounce_rate": -0.1  # < 0
-    }
+def test_feature_msg_from_kafka_invalid():
+    """Test that invalid Kafka message raises error."""
+    invalid_message = b"invalid json"
     
-    event = parse_clickstream_event(json.dumps(invalid_event_json))
-    assert event is None
+    with pytest.raises(ValueError, match="Failed to parse Kafka message"):
+        FeatureMsg.from_kafka(invalid_message)
 
 
-def test_parse_invalid_json():
-    """Test parsing invalid JSON."""
-    event = parse_clickstream_event("invalid json")
-    assert event is None
-
-
-def test_format_window_result():
-    """Test formatting window result as JSON."""
-    # Mock window data: (key, (ctr_avg, bounce_rate_avg, event_count), window_start, window_end)
-    window_data = (
-        ("US", "ios"),  # key (geo, platform)
-        (0.025, 0.65, 150),  # aggregated values (ctr_avg, bounce_rate_avg, event_count)
-        1693065600000,  # window_start (milliseconds)
-        1693065900000   # window_end (milliseconds)
+def test_feature_msg_to_serving_request():
+    """Test conversion to serving API request format."""
+    feature = FeatureMsg(
+        window_start="2024-01-15T10:30:00.000Z",
+        window_end="2024-01-15T10:35:00.000Z",
+        geo="US",
+        platform="web",
+        ctr_avg=0.025,
+        bounce_rate_avg=0.45,
+        event_count=150
     )
     
-    result_json = format_window_result(window_data)
-    result = json.loads(result_json)
+    request = feature.to_serving_request()
     
-    # Check required fields exist
-    required_fields = ['window_start', 'window_end', 'geo', 'platform', 'ctr_avg', 'bounce_rate_avg', 'event_count']
-    for field in required_fields:
-        assert field in result, f"Missing required field: {field}"
-    
-    # Check field types
-    assert isinstance(result['window_start'], str)
-    assert isinstance(result['window_end'], str)
-    assert isinstance(result['geo'], str)
-    assert isinstance(result['platform'], str)
-    assert isinstance(result['ctr_avg'], float)
-    assert isinstance(result['bounce_rate_avg'], float)
-    assert isinstance(result['event_count'], int)
-    
-    # Check field values
-    assert result['geo'] == "US"
-    assert result['platform'] == "ios"
-    assert result['ctr_avg'] == 0.025
-    assert result['bounce_rate_avg'] == 0.65
-    assert result['event_count'] == 150
-    
-    # Check timestamp format (should end with Z)
-    assert result['window_start'].endswith('Z')
-    assert result['window_end'].endswith('Z')
+    assert request["ctr_avg"] == 0.025
+    assert request["bounce_rate_avg"] == 0.45
+    assert request["event_count"] == 150
+    assert request["geo"] == "US"
+    assert request["platform"] == "web"
+    assert request["timestamp"] == "2024-01-15T10:35:00.000Z"
 
 
-def test_format_window_result_zero_events():
-    """Test formatting window result with zero events."""
-    window_data = (
-        ("DE", "web"),
-        (0.0, 0.0, 0),  # Zero events
-        1693065600000,
-        1693065900000
+def test_alert_msg_from_feature_and_response():
+    """Test creating AlertMsg from FeatureMsg and ServingResponse."""
+    feature = FeatureMsg(
+        window_start="2024-01-15T10:30:00.000Z",
+        window_end="2024-01-15T10:35:00.000Z",
+        geo="US",
+        platform="web",
+        ctr_avg=0.025,
+        bounce_rate_avg=0.45,
+        event_count=150
     )
     
-    result_json = format_window_result(window_data)
-    result = json.loads(result_json)
+    response = ServingResponse(
+        anomaly_score=1.2,
+        is_anomaly=True,
+        threshold=0.61,
+        features_used=["ctr_avg", "bounce_rate_avg", "event_count"],
+        meta={"geo": "US", "platform": "web"}
+    )
     
-    assert result['ctr_avg'] == 0.0
-    assert result['bounce_rate_avg'] == 0.0
-    assert result['event_count'] == 0
-    assert result['geo'] == "DE"
-    assert result['platform'] == "web"
+    alert = AlertMsg.from_feature_and_response(feature, response)
+    
+    assert alert.ts == "2024-01-15T10:35:00.000Z"
+    assert alert.geo == "US"
+    assert alert.platform == "web"
+    assert alert.ctr_avg == 0.025
+    assert alert.bounce_rate_avg == 0.45
+    assert alert.event_count == 150
+    assert alert.anomaly_score == 1.2
+    assert alert.threshold == 0.61
+    assert alert.source_window["start"] == "2024-01-15T10:30:00.000Z"
+    assert alert.source_window["end"] == "2024-01-15T10:35:00.000Z"
 
 
-def test_round_trip_json_encoding():
-    """Test round-trip JSON encoding/decoding of a valid event."""
-    valid_event_json = {
-        "timestamp": "2025-08-26T14:03:12Z",
-        "user_id_hash": "9c0b6c1e07f3a4e1",
-        "ad_id": "ad_281",
-        "campaign_id": "camp_12",
-        "geo": "US",
-        "platform": "ios",
-        "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)...",
-        "CPC": 0.42,
-        "CTR": 0.019,
-        "conversion": 0,
-        "bounce_rate": 0.61
+def test_alert_msg_to_kafka():
+    """Test conversion of AlertMsg to Kafka message bytes."""
+    alert = AlertMsg(
+        ts="2024-01-15T10:35:00.000Z",
+        geo="US",
+        platform="web",
+        ctr_avg=0.025,
+        bounce_rate_avg=0.45,
+        event_count=150,
+        anomaly_score=1.2,
+        threshold=0.61,
+        source_window={
+            "start": "2024-01-15T10:30:00.000Z",
+            "end": "2024-01-15T10:35:00.000Z"
+        }
+    )
+    
+    message_bytes = alert.to_kafka()
+    data = json.loads(message_bytes.decode('utf-8'))
+    
+    assert data["ts"] == "2024-01-15T10:35:00.000Z"
+    assert data["geo"] == "US"
+    assert data["anomaly_score"] == 1.2
+
+
+@pytest.mark.asyncio
+@patch('streaming.scorer.httpx.AsyncClient')
+async def test_call_serving_api_success(mock_client_class):
+    """Test successful serving API call."""
+    # Mock the async client
+    mock_client = AsyncMock()
+    mock_client_class.return_value = mock_client
+    
+    # Mock successful response
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "anomaly_score": 1.2,
+        "is_anomaly": True,
+        "threshold": 0.61,
+        "features_used": ["ctr_avg", "bounce_rate_avg", "event_count"],
+        "meta": {"geo": "US", "platform": "web"}
+    }
+    mock_client.post.return_value = mock_response
+    
+    # Import here to avoid circular imports
+    from streaming.scorer import call_serving_api
+    
+    feature = FeatureMsg(
+        window_start="2024-01-15T10:30:00.000Z",
+        window_end="2024-01-15T10:35:00.000Z",
+        geo="US",
+        platform="web",
+        ctr_avg=0.025,
+        bounce_rate_avg=0.45,
+        event_count=150
+    )
+    
+    response = await call_serving_api(feature)
+    
+    assert response is not None
+    assert response.anomaly_score == 1.2
+    assert response.is_anomaly is True
+    assert response.threshold == 0.61
+
+
+@pytest.mark.asyncio
+@patch('streaming.scorer.httpx.AsyncClient')
+async def test_call_serving_api_retry_success(mock_client_class):
+    """Test serving API call with retry on failure then success."""
+    # Mock the async client
+    mock_client = AsyncMock()
+    mock_client_class.return_value = mock_client
+    
+    # Mock two failures then success
+    mock_response_fail = Mock()
+    mock_response_fail.status_code = 500
+    
+    mock_response_success = Mock()
+    mock_response_success.status_code = 200
+    mock_response_success.json.return_value = {
+        "anomaly_score": 1.2,
+        "is_anomaly": True,
+        "threshold": 0.61,
+        "features_used": ["ctr_avg", "bounce_rate_avg", "event_count"],
+        "meta": {"geo": "US", "platform": "web"}
     }
     
-    # Encode to JSON
-    json_str = json.dumps(valid_event_json)
+    mock_client.post.side_effect = [mock_response_fail, mock_response_fail, mock_response_success]
     
-    # Parse the event
-    event = parse_clickstream_event(json_str)
+    # Import here to avoid circular imports
+    from streaming.scorer import call_serving_api
     
-    assert event is not None
-    assert event.geo == "US"
-    assert event.platform == "ios"
-    assert event.ctr == 0.019
-    assert event.bounce_rate == 0.61
+    feature = FeatureMsg(
+        window_start="2024-01-15T10:30:00.000Z",
+        window_end="2024-01-15T10:35:00.000Z",
+        geo="US",
+        platform="web",
+        ctr_avg=0.025,
+        bounce_rate_avg=0.45,
+        event_count=150
+    )
+    
+    response = await call_serving_api(feature)
+    
+    assert response is not None
+    assert response.anomaly_score == 1.2
+    assert mock_client.post.call_count == 3
+
+
+@pytest.mark.asyncio
+@patch('streaming.scorer.httpx.AsyncClient')
+async def test_call_serving_api_max_retries_exceeded(mock_client_class):
+    """Test serving API call with max retries exceeded."""
+    # Mock the async client
+    mock_client = AsyncMock()
+    mock_client_class.return_value = mock_client
+    
+    # Mock repeated failures
+    mock_response_fail = Mock()
+    mock_response_fail.status_code = 500
+    mock_client.post.return_value = mock_response_fail
+    
+    # Import here to avoid circular imports
+    from streaming.scorer import call_serving_api
+    
+    feature = FeatureMsg(
+        window_start="2024-01-15T10:30:00.000Z",
+        window_end="2024-01-15T10:35:00.000Z",
+        geo="US",
+        platform="web",
+        ctr_avg=0.025,
+        bounce_rate_avg=0.45,
+        event_count=150
+    )
+    
+    response = await call_serving_api(feature)
+    
+    assert response is None
+    # Should have tried RETRY_MAX + 1 times (default 4)
+    assert mock_client.post.call_count == 4
