@@ -2,6 +2,12 @@
 
 A production-ready real-time clickstream analytics platform for detecting ad fraud anomalies with machine learning.
 
+## 🏗️ System Architecture
+
+![Adnomaly Data Generation Pipeline](architecture_pictures/adnomly_datagenerationpipeline.png)
+
+**Data Generation Pipeline**: Real-time clickstream events flow from the data generator through Kafka to multiple consumers, creating a robust data pipeline with PostgreSQL for structured storage, MinIO for data lake storage, and Feast for feature store management. The system includes comprehensive web interfaces for monitoring and management.
+
 ## 🚀 Quick Start
 
 ### Prerequisites
