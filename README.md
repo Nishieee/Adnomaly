@@ -369,6 +369,9 @@ make test
 # Test data generation
 make gen
 
+# Generate bulk historical data (months of data)
+make bulk-gen
+
 # Test database storage
 make db-consumer
 
@@ -384,21 +387,21 @@ make feast-test
 ### ✅ Active Components
 1. **Data Generation**: 120 events/second, 36 countries, 3 platforms
 2. **Kafka Streaming**: Real-time event distribution
-3. **PostgreSQL**: 21,379 events stored with structured schema (current)
+3. **PostgreSQL**: 99,718 events stored with structured schema
 4. **MinIO**: Time-partitioned batch files in data lake
 5. **pgAdmin**: Web-based database management
 6. **MinIO Console**: File browser for data lake
 7. **Flink Infrastructure**: Job manager and task manager running
-8. **Feature Store**: Feast repository configured with 8 days of offline data
+8. **Feature Store**: Feast repository configured with 9 days of offline data
 9. **Redis**: Online feature store cache (healthy)
 
 ### 📈 Performance Metrics
 - **Event Generation**: 120 events/second sustained
-- **Database Storage**: 21,379 events successfully stored (current)
+- **Database Storage**: 99,718 events successfully stored
 - **Geographic Coverage**: 36 countries with balanced distribution
 - **Data Retention**: 7 days Kafka retention, persistent PostgreSQL storage
 - **Real-time Processing**: Sub-second latency from generation to storage
-- **Feature Store**: 8 days of offline data (60,480 features) in parquet format
+- **Feature Store**: 9 days of offline data (60,480+ features) in parquet format
 
 ## 🚨 Troubleshooting
 
@@ -548,11 +551,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 The system successfully demonstrates a production-ready real-time analytics platform with proper data validation, multiple storage backends, stream processing, and feature store integration. Ready for ML model integration in Phase 4!
 
+**Current Dataset**: 99,718 events with 9 days of feature store data (60,480+ features) - Substantial dataset for ML training and testing!
+
 ## 🎯 Current Working Status (Verified)
 
 ✅ **All Services Running**: Kafka, PostgreSQL, MinIO, Redis, Flink, pgAdmin  
-✅ **Data Pipeline Active**: 21,379 events stored in PostgreSQL  
-✅ **Feature Store Ready**: 8 days of offline data (60,480 features)  
+✅ **Data Pipeline Active**: 99,718 events stored in PostgreSQL  
+✅ **Feature Store Ready**: 9 days of offline data (60,480+ features)  
 ✅ **Web Interfaces Accessible**: All URLs and credentials working  
 ✅ **Persistent Storage**: Data survives container restarts  
 ✅ **Real-time Processing**: Sub-second latency from generation to storage  

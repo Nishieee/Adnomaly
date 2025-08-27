@@ -17,6 +17,11 @@ gen:
 	pip install -r requirements.txt && \
 	EVENTS_PER_SEC=120 HASH_SALT=$${HASH_SALT:-salt} python data/generator.py
 
+bulk-gen:
+	python -m venv .venv && . .venv/bin/activate && \
+	pip install -r requirements.txt && \
+	HASH_SALT=adnomaly_bulk python data/bulk_generator.py
+
 tail:
 	python -m venv .venv && . .venv/bin/activate && \
 	pip install -r requirements.txt && \
