@@ -110,3 +110,19 @@ export-onnx:
 
 eval-model:
 	. .venv/bin/activate && python model/evaluate.py
+
+.PHONY: serve docker-build docker-run curl-score
+
+serve:
+	uvicorn serving.app:app --host 0.0.0.0 --port 8080 --reload
+
+docker-build:
+	docker build -t adnomaly-serving:latest -f serving/Dockerfile .
+
+docker-run:
+	docker run --rm -p 8080:8080 adnomaly-serving:latest
+
+curl-score:
+	curl -s -X POST http://localhost:8080/v1/score \
+	 -H 'content-type: application/json' \
+	 -d '{"ctr_avg":0.03,"bounce_rate_avg":0.62,"event_count":350,"geo":"US","platform":"ios"}' | jq
