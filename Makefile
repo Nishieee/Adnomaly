@@ -1,4 +1,4 @@
-.PHONY: up down create-topic gen tail test flink-submit tail-features db-consumer minio-consumer db-query
+.PHONY: up down create-topic gen tail test flink-submit tail-features db-consumer minio-consumer db-query pgadmin feast-apply feast-ingestor feast-backfill feast-test
 
 up:
 	docker compose -f infra/docker-compose.yml up -d
@@ -51,3 +51,41 @@ db-query:
 	python -m venv .venv && . .venv/bin/activate && \
 	pip install -r requirements.txt && \
 	python tools/db_query.py
+
+pgadmin:
+	@echo "Starting pgAdmin..."
+	@echo "Access pgAdmin at: http://localhost:5050"
+	@echo "Email: admin@adnomaly.com"
+	@echo "Password: admin123"
+	@echo ""
+	@echo "To connect to PostgreSQL:"
+	@echo "Host: postgres"
+	@echo "Port: 5432"
+	@echo "Database: adnomaly"
+	@echo "Username: adnomaly_user"
+	@echo "Password: adnomaly_password"
+
+feast-apply:
+	python -m venv .venv && . .venv/bin/activate && \
+	pip install -r requirements.txt && \
+	cd features/feature_repo && feast apply
+
+feast-ingestor:
+	python -m venv .venv && . .venv/bin/activate && \
+	pip install -r requirements.txt && \
+	python features/ingestor.py
+
+feast-backfill:
+	python -m venv .venv && . .venv/bin/activate && \
+	pip install -r requirements.txt && \
+	python features/offline_backfill.py
+
+feast-test:
+	python -m venv .venv && . .venv/bin/activate && \
+	pip install -r requirements.txt && \
+	python features/test_feast.py
+
+feast-materialize:
+	python -m venv .venv && . .venv/bin/activate && \
+	pip install -r requirements.txt && \
+	cd features/feature_repo && feast materialize-incremental $(date -u +"%Y-%m-%dT%H:%M:%SZ")
