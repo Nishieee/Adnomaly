@@ -13,8 +13,8 @@ def build_consumer(group_id: str, bootstrap_servers: str) -> Consumer:
         'group.id': group_id,
         'auto.offset.reset': 'earliest',  # Start from earliest to process all messages
         'enable.auto.commit': False,  # Disable auto commit
-        'session.timeout.ms': 6000,
-        'heartbeat.interval.ms': 2000,
+        'session.timeout.ms': 30000,  # 30 seconds
+        'heartbeat.interval.ms': 10000,  # 10 seconds
         'max.poll.interval.ms': 300000,  # 5 minutes
         'enable.partition.eof': False,  # Don't treat EOF as error
         'allow.auto.create.topics': True
