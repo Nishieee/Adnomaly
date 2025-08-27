@@ -61,16 +61,15 @@ def get_aggregated_features(conn, days_back=7):
             window_end,
             geo,
             platform,
-            ctr_avg,
-            bounce_rate_avg,
+            avg_ctr,
+            avg_bounce_rate,
             event_count
         FROM feature_aggregates 
-        WHERE window_end >= NOW() - INTERVAL '%s days'
         ORDER BY window_end
         """
         
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            cursor.execute(query, (days_back,))
+            cursor.execute(query)
             results = cursor.fetchall()
             
         return results
@@ -107,8 +106,8 @@ def create_sample_data():
                     'window_end': window_end,
                     'geo': geo,
                     'platform': platform,
-                    'ctr_avg': round(0.02 + (hash(f"{geo}{platform}{current_time}") % 100) / 10000, 4),
-                    'bounce_rate_avg': round(0.3 + (hash(f"{geo}{platform}{current_time}") % 100) / 1000, 3),
+                    'avg_ctr': round(0.02 + (hash(f"{geo}{platform}{current_time}") % 100) / 10000, 4),
+                    'avg_bounce_rate': round(0.3 + (hash(f"{geo}{platform}{current_time}") % 100) / 1000, 3),
                     'event_count': 50 + (hash(f"{geo}{platform}{current_time}") % 200)
                 })
         
@@ -171,8 +170,8 @@ def main():
         # Ensure proper data types
         df['window_start'] = pd.to_datetime(df['window_start'])
         df['window_end'] = pd.to_datetime(df['window_end'])
-        df['ctr_avg'] = df['ctr_avg'].astype(float)
-        df['bounce_rate_avg'] = df['bounce_rate_avg'].astype(float)
+        df['avg_ctr'] = df['avg_ctr'].astype(float)
+        df['avg_bounce_rate'] = df['avg_bounce_rate'].astype(float)
         df['event_count'] = df['event_count'].astype(int)
         
         print(f"Processing {len(df)} aggregated features...")

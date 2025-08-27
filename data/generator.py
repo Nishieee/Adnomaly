@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 Clickstream event generator for Adnomaly project.
-Generates realistic clickstream events and sends them to Kafka.
+Generates realistic clickstream events with temporal variation and sends them to Kafka.
 """
 
 import json
+import math
 import os
 import random
 import signal
@@ -27,46 +28,79 @@ from data.schema import validate_event
 # Environment variables with defaults
 KAFKA_BOOTSTRAP = os.getenv('KAFKA_BOOTSTRAP', 'localhost:29092')
 TOPIC = os.getenv('TOPIC', 'clickstream')
-EVENTS_PER_SEC = float(os.getenv('EVENTS_PER_SEC', '120'))
 HASH_SALT = os.getenv('HASH_SALT')  # No default required by Phase 1 make target provides one
 
-# Constants - Balanced distribution
-GEO_COUNTRIES = ['US', 'IN', 'BR', 'DE', 'JP', 'CA', 'AU', 'UK', 'FR', 'IT', 'ES', 'NL', 'SE', 'NO', 'DK', 'FI', 'CH', 'AT', 'BE', 'IE', 'PT', 'GR', 'PL', 'CZ', 'HU', 'RO', 'BG', 'HR', 'SI', 'SK', 'LT', 'LV', 'EE', 'LU', 'MT', 'CY']
+# Deterministic seed
+SEED = int(os.getenv("SEED", "42"))
+random.seed(SEED)
 
-# Balanced platform distribution (web: 40%, mobile: 60%)
-PLATFORMS = ['web', 'ios', 'android']
-PLATFORM_WEIGHTS = [0.4, 0.3, 0.3]  # 40% web, 30% iOS, 30% Android
+# Traffic shaping
+BASE_EPS = float(os.getenv("EVENTS_PER_SEC", "120"))  # base; will be modulated
+DIURNAL_AMPL = float(os.getenv("DIURNAL_AMPL", "0.6"))  # 0..1; 0.6 = ±60% swing
+PEAK_HOUR = int(os.getenv("PEAK_HOUR_UTC", "20"))  # hour of daily max
+WEEKEND_MULT = float(os.getenv("WEEKEND_MULT", "0.85"))  # weekend volume factor
 
-# Realistic metric ranges
-CTR_MIN, CTR_MAX = 0.005, 0.05
-CPC_MIN, CPC_MAX = 0.10, 1.20
-BOUNCE_RATE_MIN, BOUNCE_RATE_MAX = 0.20, 0.90
+# Geo/platform skew (weights must sum ~1 after normalization)
+GEO_WEIGHTS = os.getenv("GEO_WEIGHTS", "US:0.30,IN:0.20,BR:0.12,DE:0.08,FR:0.08,UK:0.08,CA:0.06,JP:0.04,IT:0.02,AU:0.02")
+PLATFORM_WEIGHTS = os.getenv("PLATFORM_WEIGHTS", "web:0.45,android:0.30,ios:0.25")
 
-# Time range for diverse timestamps (last 12 months for better distribution)
-TIME_RANGE_DAYS = 365  # 12 months of data
+# CTR/bounce shaping
+CTR_BASE = float(os.getenv("CTR_BASE", "0.022"))       # baseline CTR
+CTR_DIURNAL_AMPL = float(os.getenv("CTR_DIURNAL_AMPL", "0.35"))
+BOUNCE_BASE = float(os.getenv("BOUNCE_BASE", "0.36"))
+BOUNCE_DIURNAL_AMPL = float(os.getenv("BOUNCE_DIURNAL_AMPL", "0.20"))
+
+# Noise
+NOISE_STD_CTR = float(os.getenv("NOISE_STD_CTR", "0.002"))
+NOISE_STD_BOUNCE = float(os.getenv("NOISE_STD_BOUNCE", "0.02"))
+NOISE_STD_CPC = float(os.getenv("NOISE_STD_CPC", "0.05"))
 
 # Initialize Faker
 fake = Faker()
 
 
-def generate_balanced_timestamp() -> str:
-    """Generate a timestamp with balanced distribution across the last 12 months."""
-    # Use weighted random to ensure better distribution across months
-    # More recent months get slightly higher weight
-    days_ago = int(random.weibullvariate(TIME_RANGE_DAYS * 0.3, 2))
-    days_ago = min(days_ago, TIME_RANGE_DAYS)  # Ensure we don't go beyond range
-    
-    random_date = datetime.now(timezone.utc) - timedelta(days=days_ago)
-    
-    # Add random hours, minutes, seconds for more diversity
-    random_date += timedelta(
-        hours=random.randint(0, 23),
-        minutes=random.randint(0, 59),
-        seconds=random.randint(0, 59),
-        microseconds=random.randint(0, 999999)
-    )
-    
-    return random_date.isoformat().replace('+00:00', 'Z')
+def parse_weights(spec: str):
+    """Parse weight strings into keys and probabilities."""
+    parts = [p.strip() for p in spec.split(",") if p.strip()]
+    keys, vals = [], []
+    for p in parts:
+        k, v = p.split(":")
+        keys.append(k.strip())
+        vals.append(float(v))
+    s = sum(vals)
+    probs = [v/s for v in vals]
+    return keys, probs
+
+
+GEO_KEYS, GEO_PROBS = parse_weights(GEO_WEIGHTS)
+PLATFORM_KEYS, PLATFORM_PROBS = parse_weights(PLATFORM_WEIGHTS)
+
+
+def diurnal_mult(dt, ampl: float):
+    """Compute diurnal multiplier (cosine curve, peak at PEAK_HOUR)."""
+    # dt is aware UTC datetime
+    # cosine: 1 + ampl * cos(2π * (hour - peak)/24)
+    hour = dt.hour + dt.minute/60.0
+    phase = 2*math.pi*((hour - PEAK_HOUR) / 24.0)
+    return max(0.0, 1.0 + ampl*math.cos(phase))
+
+
+def weekend_mult(dt):
+    """Compute weekend volume multiplier."""
+    return WEEKEND_MULT if dt.weekday() >= 5 else 1.0  # 5=Sat,6=Sun
+
+
+def jitter(mu, std, lo=None, hi=None):
+    """Add thin noise to a value."""
+    x = mu + random.gauss(0, std)
+    if lo is not None: x = max(lo, x)
+    if hi is not None: x = min(hi, x)
+    return x
+
+
+def current_eps(now_utc):
+    """Compute current events per second based on time."""
+    return BASE_EPS * diurnal_mult(now_utc, DIURNAL_AMPL) * weekend_mult(now_utc)
 
 
 def generate_user_id_hash(salt: str) -> str:
@@ -77,11 +111,8 @@ def generate_user_id_hash(salt: str) -> str:
     return hash_result[:16].lower()  # Take first 16 hex chars, ensure lowercase
 
 
-def sample_event() -> Dict[str, Any]:
-    """Generate a single clickstream event with balanced distribution."""
-    # Generate balanced timestamp
-    timestamp = generate_balanced_timestamp()
-    
+def sample_event(now_utc: datetime) -> Dict[str, Any]:
+    """Generate a single clickstream event with temporal variation."""
     # Generate user ID hash
     user_id_hash = generate_user_id_hash(HASH_SALT)
     
@@ -89,22 +120,27 @@ def sample_event() -> Dict[str, Any]:
     ad_id = f"ad_{random.randint(1000, 9999)}"
     campaign_id = f"camp_{random.randint(100, 999)}"
     
-    # Balanced selections
-    geo = random.choice(GEO_COUNTRIES)  # Equal probability for all countries
-    platform = random.choices(PLATFORMS, weights=PLATFORM_WEIGHTS)[0]  # Weighted platform selection
+    # Weighted selections
+    geo = random.choices(GEO_KEYS, GEO_PROBS, k=1)[0]
+    platform = random.choices(PLATFORM_KEYS, PLATFORM_PROBS, k=1)[0]
     user_agent = fake.user_agent()
     
-    # Generate realistic metrics with some correlation
-    ctr = random.uniform(CTR_MIN, CTR_MAX)
-    cpc = random.uniform(CPC_MIN, CPC_MAX)
-    bounce_rate = random.uniform(BOUNCE_RATE_MIN, BOUNCE_RATE_MAX)
+    # Shaping CTR/bounce with time-of-day
+    ctr_mu = CTR_BASE * diurnal_mult(now_utc, CTR_DIURNAL_AMPL)
+    bounce_mu = BOUNCE_BASE / max(0.6, diurnal_mult(now_utc, BOUNCE_DIURNAL_AMPL))  # lower bounce at peak time
+    ctr = jitter(ctr_mu, NOISE_STD_CTR, lo=0.001, hi=1.0)
+    bounce = jitter(bounce_mu, NOISE_STD_BOUNCE, lo=0.05, hi=0.98)
     
-    # Conversion based on CTR with realistic correlation
-    conversion_prob = ctr * random.uniform(0.1, 0.8)
-    conversion = 1 if random.random() < conversion_prob else 0
+    # CPC with light noise (keep ≥0)
+    base_cpc = 0.25 if platform == "web" else 0.35  # tiny platform effect
+    cpc = max(0.01, jitter(base_cpc, NOISE_STD_CPC))
+    
+    # Conversion probability tied to CTR (bounded)
+    p_conv = max(0.0005, min(0.25, ctr * random.uniform(0.1, 0.8)))
+    conversion = 1 if random.random() < p_conv else 0
     
     return {
-        'timestamp': timestamp,
+        'timestamp': now_utc.isoformat().replace('+00:00', 'Z'),
         'user_id_hash': user_id_hash,
         'ad_id': ad_id,
         'campaign_id': campaign_id,
@@ -114,7 +150,7 @@ def sample_event() -> Dict[str, Any]:
         'CPC': round(cpc, 3),
         'CTR': round(ctr, 4),
         'conversion': conversion,
-        'bounce_rate': round(bounce_rate, 3)
+        'bounce_rate': round(bounce, 3)
     }
 
 
@@ -144,18 +180,18 @@ def send_event(producer: Producer, event: Dict[str, Any]) -> None:
 
 def main():
     """Main function to run the event generator."""
-    print(f"Starting clickstream generator...")
+    print(f"Starting clickstream generator with temporal variation...")
     print(f"Kafka: {KAFKA_BOOTSTRAP}")
     print(f"Topic: {TOPIC}")
-    print(f"Events per second: {EVENTS_PER_SEC}")
+    print(f"Base EPS: {BASE_EPS}")
+    print(f"Diurnal amplitude: {DIURNAL_AMPL}")
+    print(f"Peak hour UTC: {PEAK_HOUR}")
+    print(f"Weekend multiplier: {WEEKEND_MULT}")
     print(f"Hash salt: {HASH_SALT}")
     print("Press Ctrl+C to stop")
     
     # Create producer
     producer = create_producer()
-    
-    # Calculate sleep interval
-    sleep_interval = 1.0 / EVENTS_PER_SEC
     
     # Statistics
     events_sent = 0
@@ -171,10 +207,12 @@ def main():
     
     try:
         while True:
-            start_time = time.time()
+            now = datetime.now(timezone.utc)
+            eps = max(1.0, current_eps(now))
+            period = 1.0 / eps
             
             # Generate and send event
-            event = sample_event()
+            event = sample_event(now)
             send_event(producer, event)
             events_sent += 1
             
@@ -183,14 +221,12 @@ def main():
             if current_time - last_report_time >= 5.0:
                 elapsed = current_time - last_report_time
                 actual_eps = events_sent / elapsed if elapsed > 0 else 0
-                print(f"Sent {events_sent} events in {elapsed:.1f}s ({actual_eps:.1f} events/sec)")
+                print(f"Sent {events_sent} events in {elapsed:.1f}s ({actual_eps:.1f} events/sec, target: {eps:.1f})")
                 events_sent = 0
                 last_report_time = current_time
             
-            # Sleep to maintain rate
-            elapsed = time.time() - start_time
-            if elapsed < sleep_interval:
-                time.sleep(sleep_interval - elapsed)
+            # Sleep to maintain variable rate
+            time.sleep(period)
                 
     except KeyboardInterrupt:
         print(f"\nShutting down... Sent {events_sent} events total")

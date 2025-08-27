@@ -4,10 +4,11 @@ A comprehensive real-time clickstream analytics platform for detecting ad fraud 
 
 ## 🎯 What is Adnomaly?
 
-Adnomaly is a **real-time clickstream analytics platform** that detects ad fraud anomalies. It generates realistic clickstream events and processes them through a complete data pipeline with persistent storage in multiple systems.
+Adnomaly is a **real-time clickstream analytics platform** that detects ad fraud anomalies. It generates realistic clickstream events with natural temporal variation and processes them through a complete data pipeline with persistent storage in multiple systems.
 
 ### Key Features
-- **Real-time Data Generation**: 120 events/second with 36 countries, 3 platforms
+- **Realistic Data Generation**: Variable rate (48-192 events/sec) with temporal patterns
+- **Natural Temporal Variation**: Day-time cycles, weekday/weekend patterns, geographic skew
 - **Multi-Phase Architecture**: From basic streaming to feature store integration
 - **Persistent Storage**: PostgreSQL + MinIO + Redis
 - **Stream Processing**: Kafka + Flink for real-time analytics
@@ -77,15 +78,22 @@ make tail
 ```
 
 ### Data Diversity
-- **36 Countries**: US, IN, BR, DE, JP, CA, AU, UK, FR, IT, ES, NL, SE, NO, DK, FI, CH, AT, BE, IE, PT, GR, PL, CZ, HU, RO, BG, HR, SI, SK, LT, LV, EE, LU, MT, CY
-- **3 Platforms**: Web (40%), iOS (30%), Android (30%)
-- **Time Range**: 12 months of historical data
-- **Realistic Metrics**: CTR (0.005-0.05), CPC ($0.10-$1.20), Bounce Rate (0.20-0.90)
+- **10 Major Countries**: US (30%), IN (20%), BR (12%), DE/FR/UK (8% each), CA (6%), JP (4%), IT/AU (2% each)
+- **3 Platforms**: Web (45%), Android (30%), iOS (25%)
+- **Temporal Patterns**: 24-hour cycles with peak at 20:00 UTC, weekend reduction (85%)
+- **Realistic Metrics**: 
+  - CTR: 0.014-0.030 (varies by time of day)
+  - CPC: $0.25-0.35 (varies by platform)
+  - Bounce Rate: 0.30-0.45 (inverse to traffic volume)
+- **Natural Variation**: ±60% traffic swing, ±35% CTR variation, realistic noise
 
 ### Data Quality
 - **Schema Validation**: Pydantic validation on all events
-- **Balanced Distribution**: Equal probability across geographies
-- **Realistic Correlations**: CTR affects conversion probability
+- **Realistic Temporal Variation**: Day-time cycles, weekday/weekend patterns
+- **Geographic Skew**: Weighted distribution reflecting real-world traffic patterns
+- **Platform Distribution**: Realistic web/mobile split with temporal variation
+- **Metric Correlation**: CTR and bounce rates vary naturally with time
+- **Natural Noise**: Small random variations prevent perfectly regular patterns
 - **Persistent Storage**: Data survives container restarts
 
 ## 🛠️ Available Commands
@@ -257,8 +265,31 @@ features = store.get_online_features(
 ### Environment Variables
 ```bash
 # Data Generation
-EVENTS_PER_SEC=120          # Events per second
+BASE_EPS=120                # Base events per second (will be modulated)
 HASH_SALT=balanced123       # Data consistency
+SEED=42                     # Random seed for reproducibility
+
+# Temporal Variation
+DIURNAL_AMPL=0.6            # Diurnal amplitude (0..1, 0.6 = ±60% swing)
+PEAK_HOUR_UTC=20            # Hour of daily maximum traffic
+WEEKEND_MULT=0.85           # Weekend volume multiplier
+
+# Geographic Distribution
+GEO_WEIGHTS=US:0.30,IN:0.20,BR:0.12,DE:0.08,FR:0.08,UK:0.08,CA:0.06,JP:0.04,IT:0.02,AU:0.02
+
+# Platform Distribution
+PLATFORM_WEIGHTS=web:0.45,android:0.30,ios:0.25
+
+# Metric Shaping
+CTR_BASE=0.022              # Baseline click-through rate
+CTR_DIURNAL_AMPL=0.35       # CTR diurnal amplitude
+BOUNCE_BASE=0.36            # Baseline bounce rate
+BOUNCE_DIURNAL_AMPL=0.20    # Bounce rate diurnal amplitude
+
+# Noise Parameters
+NOISE_STD_CTR=0.002         # CTR noise standard deviation
+NOISE_STD_BOUNCE=0.02       # Bounce rate noise standard deviation
+NOISE_STD_CPC=0.05          # CPC noise standard deviation
 
 # Kafka Configuration
 KAFKA_BOOTSTRAP=localhost:29092
@@ -333,6 +364,7 @@ make test
 ### Test Coverage
 - **Schema Validation**: Valid/invalid event testing
 - **Generator Smoke Tests**: Data generation verification
+- **Temporal Variation**: Diurnal patterns, weekend effects, metric correlation
 - **Streaming Contract**: Kafka message format validation
 - **Feature Store**: Feast integration testing
 

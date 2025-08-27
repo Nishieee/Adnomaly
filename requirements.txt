@@ -6,6 +6,12 @@ python-dateutil==2.9.0.post0
 psycopg2-binary==2.9.9
 boto3==1.34.0
 feast[redis]==0.38.0
-pandas==2.1.4
+pandas==2.2.2
 pyarrow==14.0.2
 redis==4.6.0
+numpy==1.26.4
+scikit-learn==1.5.1
+onnx==1.16.1
+onnxruntime==1.18.0
+skl2onnx==1.17.0
+matplotlib==3.9.0

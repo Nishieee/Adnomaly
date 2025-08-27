@@ -94,3 +94,19 @@ feast-materialize:
 	python -m venv .venv && . .venv/bin/activate && \
 	pip install -r requirements.txt && \
 	cd features/feature_repo && feast materialize-incremental $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+.PHONY: build-ds train-model export-onnx eval-model
+
+build-ds:
+	python -m venv .venv && . .venv/bin/activate && \
+	pip install -r requirements.txt && \
+	python model/build_dataset.py
+
+train-model:
+	. .venv/bin/activate && python model/train.py
+
+export-onnx:
+	. .venv/bin/activate && python model/export_onnx.py
+
+eval-model:
+	. .venv/bin/activate && python model/evaluate.py
