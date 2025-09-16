@@ -15,7 +15,7 @@ A production-ready real-time clickstream analytics platform for detecting ad fra
 - **Python 3.11+**
 - **Make** (usually comes with macOS/Linux)
 
-### 1. Start Infrastructure
+### 1. Start Infrastructure 
 ```bash
 make up
 ```
